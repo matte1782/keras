@@ -1015,8 +1015,8 @@ def _verify_h5_dataset(dataset, trusted_h5_file):
             "Not allowed: H5 file Dataset with "
             f"external links: {dataset.external}"
         )
-    ds_fname = os.path.normcase(dataset.file.filename)
-    trusted_fname = os.path.normcase(trusted_h5_file.filename)
+    ds_fname = os.path.normcase(os.path.abspath(dataset.file.filename))
+    trusted_fname = os.path.normcase(os.path.abspath(trusted_h5_file.filename))
     if ds_fname != trusted_fname:
         raise ValueError(
             "Not allowed: H5 Dataset resolved from "
@@ -1048,8 +1048,8 @@ def _verify_h5_group(group, trusted_h5_file):
         raise ValueError(
             f"Invalid H5 file, expected Group but received {type(group)}"
         )
-    grp_fname = os.path.normcase(group.file.filename)
-    trusted_fname = os.path.normcase(trusted_h5_file.filename)
+    grp_fname = os.path.normcase(os.path.abspath(group.file.filename))
+    trusted_fname = os.path.normcase(os.path.abspath(trusted_h5_file.filename))
     if grp_fname != trusted_fname:
         raise ValueError(
             "Not allowed: H5 Group resolved from "
