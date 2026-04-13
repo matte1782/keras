@@ -309,15 +309,22 @@ def load_weights(model, filepath, skip_mismatch=False, **kwargs):
                 "You can install it via `pip install h5py`"
             )
         with h5py.File(filepath, "r") as f:
+            root_h5_file = f
             if "layer_names" not in f.attrs and "model_weights" in f:
                 f = f["model_weights"]
             if by_name:
                 legacy_h5_format.load_weights_from_hdf5_group_by_name(
-                    f, model, skip_mismatch
+                    f,
+                    model,
+                    skip_mismatch,
+                    _root_h5_file=root_h5_file,
                 )
             else:
                 legacy_h5_format.load_weights_from_hdf5_group(
-                    f, model, skip_mismatch
+                    f,
+                    model,
+                    skip_mismatch,
+                    _root_h5_file=root_h5_file,
                 )
     elif is_orbax_checkpoint(filepath):
         # Load weights from Orbax checkpoint

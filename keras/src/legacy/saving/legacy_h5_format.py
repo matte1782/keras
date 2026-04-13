@@ -12,6 +12,8 @@ from keras.src.legacy.saving import saving_options
 from keras.src.legacy.saving import saving_utils
 from keras.src.saving import object_registration
 from keras.src.saving import serialization_lib
+from keras.src.saving.saving_lib import _verify_h5_dataset
+from keras.src.saving.saving_lib import _verify_h5_group
 from keras.src.utils import io_utils
 
 try:
@@ -139,7 +141,11 @@ def load_model_from_hdf5(
             )
 
             # set weights
-            load_weights_from_hdf5_group(f["model_weights"], model)
+            load_weights_from_hdf5_group(
+                f["model_weights"],
+                model,
+                _root_h5_file=f,
+            )
 
         if compile:
             # instantiate optimizer
@@ -182,7 +188,7 @@ def load_model_from_hdf5(
                     )
 
                 optimizer_weight_values = (
-                    load_optimizer_weights_from_hdf5_group(f)
+                    load_optimizer_weights_from_hdf5_group(f, _root_h5_file=f)
                 )
                 try:
                     model.optimizer.set_weights(optimizer_weight_values)
@@ -323,7 +329,12 @@ def save_attributes_to_hdf5_group(group, name, data):
         group.attrs[name] = data
 
 
-def load_weights_from_hdf5_group(f, model, skip_mismatch=False):
+def load_weights_from_hdf5_group(
+    f,
+    model,
+    skip_mismatch=False,
+    _root_h5_file=None,
+):
     """Implements topological (order-based) weight loading.
 
     Args:
@@ -336,6 +347,8 @@ def load_weights_from_hdf5_group(f, model, skip_mismatch=False):
         ValueError: in case of mismatch between provided layers
             and weights file.
     """
+    if _root_h5_file is None:
+        _root_h5_file = f if isinstance(f, h5py.File) else f.file
     if "keras_version" in f.attrs:
         original_keras_version = f.attrs["keras_version"]
         if hasattr(original_keras_version, "decode"):
@@ -358,7 +371,7 @@ def load_weights_from_hdf5_group(f, model, skip_mismatch=False):
     layer_names = load_attributes_from_hdf5_group(f, "layer_names")
     filtered_layer_names = []
     for name in layer_names:
-        g = f[name]
+        g = _verify_h5_group(f[name], _root_h5_file)
         weight_names = load_attributes_from_hdf5_group(g, "weight_names")
         if weight_names:
             filtered_layer_names.append(name)
@@ -371,10 +384,13 @@ def load_weights_from_hdf5_group(f, model, skip_mismatch=False):
         )
 
     for k, name in enumerate(layer_names):
-        g = f[name]
+        g = _verify_h5_group(f[name], _root_h5_file)
         layer = filtered_layers[k]
         symbolic_weights = _legacy_weights(layer)
-        weight_values = load_subset_weights_from_hdf5_group(g)
+        weight_values = load_subset_weights_from_hdf5_group(
+            g,
+            _root_h5_file=_root_h5_file,
+        )
         if len(weight_values) != len(symbolic_weights):
             raise ValueError(
                 f"Weight count mismatch for layer #{k} (named {layer.name} in "
@@ -391,6 +407,7 @@ def load_weights_from_hdf5_group(f, model, skip_mismatch=False):
         )
 
     if "top_level_model_weights" in f:
+        _verify_h5_group(f["top_level_model_weights"], _root_h5_file)
         symbolic_weights = list(
             # model.weights
             v
@@ -398,7 +415,8 @@ def load_weights_from_hdf5_group(f, model, skip_mismatch=False):
             if v in model.weights
         )
         weight_values = load_subset_weights_from_hdf5_group(
-            f["top_level_model_weights"]
+            f["top_level_model_weights"],
+            _root_h5_file=_root_h5_file,
         )
         if len(weight_values) != len(symbolic_weights):
             raise ValueError(
@@ -462,7 +480,12 @@ def _set_weights(
         instance.finalize_state()
 
 
-def load_weights_from_hdf5_group_by_name(f, model, skip_mismatch=False):
+def load_weights_from_hdf5_group_by_name(
+    f,
+    model,
+    skip_mismatch=False,
+    _root_h5_file=None,
+):
     """Implements name-based weight loading (instead of topological loading).
 
     Layers that have no matching name are skipped.
@@ -478,6 +501,8 @@ def load_weights_from_hdf5_group_by_name(f, model, skip_mismatch=False):
         ValueError: in case of mismatch between provided layers
             and weights file and skip_match=False.
     """
+    if _root_h5_file is None:
+        _root_h5_file = f if isinstance(f, h5py.File) else f.file
     if "keras_version" in f.attrs:
         original_keras_version = f.attrs["keras_version"]
         if hasattr(original_keras_version, "decode"):
@@ -501,8 +526,11 @@ def load_weights_from_hdf5_group_by_name(f, model, skip_mismatch=False):
             index.setdefault(layer.name, []).append(layer)
 
     for k, name in enumerate(layer_names):
-        g = f[name]
-        weight_values = load_subset_weights_from_hdf5_group(g)
+        g = _verify_h5_group(f[name], _root_h5_file)
+        weight_values = load_subset_weights_from_hdf5_group(
+            g,
+            _root_h5_file=_root_h5_file,
+        )
         for layer in index.get(name, []):
             symbolic_weights = _legacy_weights(layer)
             if len(weight_values) != len(symbolic_weights):
@@ -531,11 +559,13 @@ def load_weights_from_hdf5_group_by_name(f, model, skip_mismatch=False):
             )
 
     if "top_level_model_weights" in f:
+        _verify_h5_group(f["top_level_model_weights"], _root_h5_file)
         symbolic_weights = (
             model._trainable_variables + model._non_trainable_variables
         )
         weight_values = load_subset_weights_from_hdf5_group(
-            f["top_level_model_weights"]
+            f["top_level_model_weights"],
+            _root_h5_file=_root_h5_file,
         )
 
         if len(weight_values) != len(symbolic_weights):
@@ -565,7 +595,10 @@ def load_weights_from_hdf5_group_by_name(f, model, skip_mismatch=False):
             )
 
 
-def load_subset_weights_from_hdf5_group(f):
+def load_subset_weights_from_hdf5_group(
+    f,
+    _root_h5_file=None,
+):
     """Load layer weights of a model from hdf5.
 
     Args:
@@ -578,11 +611,19 @@ def load_subset_weights_from_hdf5_group(f):
         ValueError: in case of mismatch between provided model
             and weights file.
     """
+    if _root_h5_file is None:
+        _root_h5_file = f if isinstance(f, h5py.File) else f.file
     weight_names = load_attributes_from_hdf5_group(f, "weight_names")
-    return [np.asarray(f[weight_name]) for weight_name in weight_names]
+    return [
+        np.asarray(_verify_h5_dataset(f[wn], _root_h5_file))
+        for wn in weight_names
+    ]
 
 
-def load_optimizer_weights_from_hdf5_group(hdf5_group):
+def load_optimizer_weights_from_hdf5_group(
+    hdf5_group,
+    _root_h5_file=None,
+):
     """Load optimizer weights from a HDF5 group.
 
     Args:
@@ -591,12 +632,20 @@ def load_optimizer_weights_from_hdf5_group(hdf5_group):
     Returns:
         data: List of optimizer weight names.
     """
-    weights_group = hdf5_group["optimizer_weights"]
+    if _root_h5_file is None:
+        _root_h5_file = (
+            hdf5_group if isinstance(hdf5_group, h5py.File) else hdf5_group.file
+        )
+    weights_group = _verify_h5_group(
+        hdf5_group["optimizer_weights"],
+        _root_h5_file,
+    )
     optimizer_weight_names = load_attributes_from_hdf5_group(
         weights_group, "weight_names"
     )
     return [
-        weights_group[weight_name] for weight_name in optimizer_weight_names
+        _verify_h5_dataset(weights_group[wn], _root_h5_file)
+        for wn in optimizer_weight_names
     ]
 
 
