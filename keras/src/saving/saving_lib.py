@@ -990,6 +990,76 @@ class DiskIOStore:
             file_utils.rmtree(self.tmp_dir)
 
 
+def _verify_h5_dataset(dataset, trusted_h5_file):
+    """Verify an HDF5 dataset is safe to read.
+
+    Checks three layers of HDF5 cross-file mechanisms:
+    1. H5D_EXTERNAL raw storage (dataset.external)
+    2. Same-file invariant (ExternalLink resolution)
+    3. Virtual Dataset layout (H5D_VIRTUAL)
+
+    Args:
+        dataset: An h5py.Dataset to verify.
+        trusted_h5_file: The h5py.File that should
+            own this dataset.
+
+    Raises:
+        ValueError: If the dataset fails any check.
+    """
+    if not isinstance(dataset, h5py.Dataset):
+        raise ValueError(
+            f"Invalid H5 file, expected Dataset, received {type(dataset)}"
+        )
+    if dataset.external:
+        raise ValueError(
+            "Not allowed: H5 file Dataset with "
+            f"external links: {dataset.external}"
+        )
+    ds_fname = os.path.normcase(dataset.file.filename)
+    trusted_fname = os.path.normcase(trusted_h5_file.filename)
+    if ds_fname != trusted_fname:
+        raise ValueError(
+            "Not allowed: H5 Dataset resolved from "
+            "a different file "
+            f"(got {dataset.file.filename!r}, "
+            f"expected {trusted_h5_file.filename!r})"
+        )
+    if dataset.is_virtual:
+        raise ValueError(
+            "Not allowed: H5 Dataset uses virtual "
+            f"sources: {dataset.virtual_sources()!r}"
+        )
+    return dataset
+
+
+def _verify_h5_group(group, trusted_h5_file):
+    """Verify an HDF5 group belongs to the trusted file.
+
+    Args:
+        group: An h5py.Group to verify.
+        trusted_h5_file: The h5py.File that should
+            own this group.
+
+    Raises:
+        ValueError: If the group is not an h5py.Group
+            or resolves from another file.
+    """
+    if not isinstance(group, h5py.Group):
+        raise ValueError(
+            f"Invalid H5 file, expected Group but received {type(group)}"
+        )
+    grp_fname = os.path.normcase(group.file.filename)
+    trusted_fname = os.path.normcase(trusted_h5_file.filename)
+    if grp_fname != trusted_fname:
+        raise ValueError(
+            "Not allowed: H5 Group resolved from "
+            "a different file "
+            f"(got {group.file.filename!r}, "
+            f"expected {trusted_h5_file.filename!r})"
+        )
+    return group
+
+
 class H5IOStore:
     """Numerical variable store backed by HDF5.
 
@@ -1042,23 +1112,10 @@ class H5IOStore:
         return self.h5_file.__bool__()
 
     def _verify_group(self, group):
-        if not isinstance(group, h5py.Group):
-            raise ValueError(
-                f"Invalid H5 file, expected Group but received {type(group)}"
-            )
-        return group
+        return _verify_h5_group(group, self.h5_file)
 
     def _verify_dataset(self, dataset):
-        if not isinstance(dataset, h5py.Dataset):
-            raise ValueError(
-                f"Invalid H5 file, expected Dataset, received {type(dataset)}"
-            )
-        if dataset.external:
-            raise ValueError(
-                "Not allowed: H5 file Dataset with external links: "
-                f"{dataset.external}"
-            )
-        return dataset
+        return _verify_h5_dataset(dataset, self.h5_file)
 
     def _get_h5_file(self, path_or_io, mode=None):
         mode = mode or self.mode

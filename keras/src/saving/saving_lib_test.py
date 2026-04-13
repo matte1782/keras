@@ -8,6 +8,7 @@ from io import BytesIO
 from pathlib import Path
 from unittest import mock
 
+import h5py
 import numpy as np
 import pytest
 from absl.testing import parameterized
@@ -1360,4 +1361,54 @@ class SavingH5IOStoreTest(testing.TestCase):
         ):
             del vars_store["abc"]
 
+        store.close()
+
+    def test_verify_rejects_external_link(self):
+        temp_dir = self.get_temp_dir()
+        target_path = os.path.join(temp_dir, "target.h5")
+        main_path = os.path.join(temp_dir, "main.weights.h5")
+
+        with h5py.File(target_path, "w") as f:
+            grp = f.create_group("dense/vars")
+            grp.create_dataset(
+                "0",
+                data=np.zeros((4,), dtype="float32"),
+            )
+
+        with h5py.File(main_path, "w") as f:
+            f["dense"] = h5py.ExternalLink(target_path, "/dense")
+
+        store = saving_lib.H5IOStore(main_path, mode="r")
+        with self.assertRaisesRegex(
+            ValueError,
+            r"resolved from a different file",
+        ):
+            store.get("dense")
+        store.close()
+
+    def test_verify_rejects_virtual_dataset(self):
+        temp_dir = self.get_temp_dir()
+        target_path = os.path.join(temp_dir, "target.h5")
+        main_path = os.path.join(temp_dir, "main.weights.h5")
+        shape = (4,)
+
+        with h5py.File(target_path, "w") as f:
+            f.create_dataset(
+                "data",
+                data=np.zeros(shape, dtype="float32"),
+            )
+
+        layout = h5py.VirtualLayout(shape=shape, dtype="float32")
+        layout[:] = h5py.VirtualSource(target_path, "data", shape=shape)
+        with h5py.File(main_path, "w") as f:
+            grp = f.create_group("dense/vars")
+            grp.create_virtual_dataset("0", layout)
+
+        store = saving_lib.H5IOStore(main_path, mode="r")
+        vs = store.get("dense")
+        with self.assertRaisesRegex(
+            ValueError,
+            r"virtual sources",
+        ):
+            vs["0"]
         store.close()

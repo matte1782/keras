@@ -452,7 +452,15 @@ class KerasFileEditor:
     def resave_weights(self, filepath):
         self.save(filepath)
 
-    def _extract_weights_from_store(self, data, metadata=None, inner_path=""):
+    def _extract_weights_from_store(
+        self,
+        data,
+        metadata=None,
+        inner_path="",
+        root_h5_file=None,
+    ):
+        if root_h5_file is None:
+            root_h5_file = data
         metadata = metadata or {}
 
         # ------------------------------------------------------
@@ -479,6 +487,7 @@ class KerasFileEditor:
             # CASE 1 — HDF5 GROUP → RECURSE
             # ------------------------------------------------------
             if isinstance(value, h5py.Group):
+                saving_lib._verify_h5_group(value, root_h5_file)
                 # Skip empty groups
                 if len(value) == 0:
                     continue
@@ -493,6 +502,7 @@ class KerasFileEditor:
                         value["vars"],
                         metadata=metadata,
                         inner_path=current_inner_path,
+                        root_h5_file=root_h5_file,
                     )
                 else:
                     # Recurse normally
@@ -500,6 +510,7 @@ class KerasFileEditor:
                         value,
                         metadata=metadata,
                         inner_path=current_inner_path,
+                        root_h5_file=root_h5_file,
                     )
 
                 continue  # finished processing this key
@@ -512,11 +523,7 @@ class KerasFileEditor:
             if not isinstance(value, h5py.Dataset):
                 continue
 
-            if value.external:
-                raise ValueError(
-                    "Not allowed: H5 file Dataset with external links: "
-                    f"{value.external}"
-                )
+            saving_lib._verify_h5_dataset(value, root_h5_file)
 
             shape = value.shape
             dtype = value.dtype
