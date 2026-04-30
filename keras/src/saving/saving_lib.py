@@ -1015,6 +1015,8 @@ def _verify_h5_dataset(dataset, trusted_h5_file):
             "Not allowed: H5 file Dataset with "
             f"external links: {dataset.external}"
         )
+    # Compare absolute, normalized paths so a relative caller path and an
+    # h5py-resolved absolute path for the same file do not falsely diverge.
     ds_fname = os.path.normcase(os.path.abspath(dataset.file.filename))
     trusted_fname = os.path.normcase(os.path.abspath(trusted_h5_file.filename))
     if ds_fname != trusted_fname:
